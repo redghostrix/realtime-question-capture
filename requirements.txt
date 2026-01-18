@@ -1,0 +1,9 @@
+torch==2.7.0
+ctranslate2>=4.6.3
+faster-whisper
+pyaudiowpatch
+numpy
+pyperclip
+requests
+dspy-ai
+scipy
