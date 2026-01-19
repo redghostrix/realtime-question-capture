@@ -6,7 +6,7 @@ buttons, status indicator, and configuration display.
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QLabel, QFrame
+    QWidget, QVBoxLayout, QPushButton, QLabel, QFrame, QCheckBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from src.config import settings
@@ -29,6 +29,7 @@ class ControlPanel(QWidget):
     start_clicked = pyqtSignal()
     stop_clicked = pyqtSignal()
     pause_clicked = pyqtSignal()
+    extraction_mode_changed = pyqtSignal(bool)  # True = extraction mode, False = accumulation mode
     
     def __init__(self):
         """Initialize the control panel."""
@@ -93,6 +94,22 @@ class ControlPanel(QWidget):
         separator3.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator3)
         
+        # Mode selection
+        mode_label = QLabel("Mode:")
+        mode_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(mode_label)
+        
+        self.extraction_checkbox = QCheckBox("Enable Question Extraction")
+        self.extraction_checkbox.setChecked(True)  # Default to extraction mode
+        self.extraction_checkbox.stateChanged.connect(self._on_extraction_mode_changed)
+        layout.addWidget(self.extraction_checkbox)
+        
+        # Separator
+        separator4 = QFrame()
+        separator4.setFrameShape(QFrame.HLine)
+        separator4.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator4)
+        
         # Configuration section
         config_label = QLabel("Configuration:")
         config_label.setStyleSheet("font-weight: bold;")
@@ -147,6 +164,11 @@ Channels: {settings.channels}
         self.stop_button.setEnabled(False)
         self._is_paused = False
         self.pause_button.setText("Pause")
+    
+    def _on_extraction_mode_changed(self, state):
+        """Handle extraction mode checkbox state change."""
+        is_checked = (state == 2)  # Qt.Checked = 2
+        self.extraction_mode_changed.emit(is_checked)
     
     def update_status(self, status: str):
         """

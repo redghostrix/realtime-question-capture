@@ -6,10 +6,12 @@ GUI components and manages the pipeline worker thread.
 """
 
 import logging
+import pyperclip
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStatusBar, QSplitter
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QKeyEvent
 
 from .control_panel import ControlPanel
 from .text_panels import TranscriptionPanel, QuestionsPanel, LogsPanel
@@ -94,6 +96,7 @@ class MainWindow(QMainWindow):
         self.control_panel.start_clicked.connect(self._on_start)
         self.control_panel.stop_clicked.connect(self._on_stop)
         self.control_panel.pause_clicked.connect(self._on_pause)
+        self.control_panel.extraction_mode_changed.connect(self._on_extraction_mode_changed)
     
     def _setup_logging(self):
         """Set up the custom logging handler for GUI display."""
@@ -222,6 +225,8 @@ class MainWindow(QMainWindow):
         # Connect worker signals to UI slots
         self.worker.transcription_ready.connect(self.transcription_panel.add_transcription)
         self.worker.question_extracted.connect(self.questions_panel.add_question)
+        self.worker.accumulated_text_updated.connect(self.questions_panel.add_accumulated_text)
+        self.worker.accumulated_text_cleared.connect(self.questions_panel.clear_accumulated_text)
         self.worker.timing_update.connect(self._update_timing_metrics)
         self.worker.status_changed.connect(self._update_status)
         self.worker.initialization_complete.connect(self._on_initialization_complete)
@@ -261,6 +266,23 @@ class MainWindow(QMainWindow):
             else:
                 logger.info("Pause button clicked")
                 self.worker.pause()
+    
+    def _on_extraction_mode_changed(self, enabled: bool):
+        """
+        Handle extraction mode toggle.
+        
+        Args:
+            enabled: True for extraction mode, False for accumulation mode
+        """
+        mode_name = "Question Extraction" if enabled else "Accumulation"
+        logger.info(f"Extraction mode changed: {mode_name}")
+        
+        # Update questions panel mode
+        self.questions_panel.set_mode(enabled)
+        
+        # Update worker mode if running
+        if self.worker is not None:
+            self.worker.set_extraction_mode(enabled)
     
     def _update_timing_metrics(self, audio_time: float, trans_time: float, extract_time: float):
         """
@@ -309,6 +331,41 @@ class MainWindow(QMainWindow):
             # Re-enable start button if initialization failed
             self.control_panel.enable_buttons(True)
             self.control_panel.update_status("Error")
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """
+        Handle keyboard events for hotkeys.
+        
+        Args:
+            event: Key event
+        """
+        # Check for Ctrl+Shift+C
+        if (event.key() == Qt.Key_C and 
+            event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier)):
+            self._copy_accumulated_text()
+        else:
+            # Pass event to parent
+            super().keyPressEvent(event)
+    
+    def _copy_accumulated_text(self):
+        """Copy accumulated text to clipboard and show status message."""
+        # Get accumulated text from questions panel
+        accumulated_text = self.questions_panel.get_accumulated_text()
+        
+        if not accumulated_text:
+            logger.info("No accumulated text to copy")
+            self.status_bar.showMessage("No text to copy", 2000)
+            return
+        
+        try:
+            # Copy to clipboard
+            pyperclip.copy(accumulated_text)
+            char_count = len(accumulated_text)
+            logger.info(f"Copied {char_count} characters to clipboard via Ctrl+Shift+C")
+            self.status_bar.showMessage(f"Copied {char_count} characters to clipboard", 3000)
+        except Exception as e:
+            logger.error(f"Failed to copy to clipboard: {e}")
+            self.status_bar.showMessage("Failed to copy to clipboard", 3000)
     
     def closeEvent(self, event):
         """

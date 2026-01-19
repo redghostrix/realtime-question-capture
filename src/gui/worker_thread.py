@@ -46,6 +46,8 @@ class PipelineWorker(QThread):
     timing_update = pyqtSignal(float, float, float)  # audio_time, trans_time, extract_time
     status_changed = pyqtSignal(str)  # status message
     initialization_complete = pyqtSignal(bool, str)  # success, message
+    accumulated_text_updated = pyqtSignal(str, str)  # timestamp, accumulated_text
+    accumulated_text_cleared = pyqtSignal()  # notify when silence clears text
     
     def __init__(self):
         """Initialize the pipeline worker thread."""
@@ -61,6 +63,12 @@ class PipelineWorker(QThread):
         self._running = False
         self._paused = False
         self._stop_requested = False
+        
+        # Mode control
+        self.extraction_mode_enabled = True  # Default to extraction mode
+        self.accumulated_text = ""
+        self.last_transcription_time = None
+        self.silence_threshold = 5.0  # seconds
         
         logger.debug("PipelineWorker initialized")
     
@@ -201,10 +209,16 @@ class PipelineWorker(QThread):
                     
                     if transcription is None or not transcription.get("text"):
                         logger.info("No transcription produced (silence or error)")
+                        # Check for silence timeout in accumulation mode
+                        if not self.extraction_mode_enabled:
+                            self._check_silence()
                         continue
                     
                     transcribed_text = transcription["text"]
                     timestamp = time.strftime('%H:%M:%S')
+                    
+                    # Reset silence timer since we got speech
+                    self.last_transcription_time = time.time()
                     
                     logger.info(
                         f"Transcription completed: {len(transcribed_text)} characters "
@@ -214,43 +228,59 @@ class PipelineWorker(QThread):
                     # Emit transcription to GUI
                     self.transcription_ready.emit(timestamp, transcribed_text)
                     
-                    # Extract questions
-                    logger.debug("Starting question extraction...")
-                    extract_start = time.time()
-                    questions = self.question_extractor.extract_questions(transcribed_text)
-                    extract_time = time.time() - extract_start
-                    
-                    if questions is None:
-                        logger.warning("Question extraction failed")
-                        # Still emit timing update
+                    if self.extraction_mode_enabled:
+                        # Question Extraction Mode - current behavior
+                        logger.debug("Starting question extraction...")
+                        extract_start = time.time()
+                        questions = self.question_extractor.extract_questions(transcribed_text)
+                        extract_time = time.time() - extract_start
+                        
+                        if questions is None:
+                            logger.warning("Question extraction failed")
+                            # Still emit timing update
+                            self.timing_update.emit(audio_time, transcribe_time, extract_time)
+                            continue
+                        
+                        if not questions or not questions.strip():
+                            logger.info("No questions detected in transcription")
+                            # Still emit timing update
+                            self.timing_update.emit(audio_time, transcribe_time, extract_time)
+                            continue
+                        
+                        logger.info(
+                            f"Question extraction completed: {len(questions)} characters "
+                            f"in {extract_time:.2f}s"
+                        )
+                        
+                        # Emit question to GUI
+                        self.question_extracted.emit(timestamp, questions)
+                        
+                        # Emit timing metrics
                         self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                        continue
+                        
+                        # Copy to clipboard
+                        logger.debug("Copying questions to clipboard...")
+                        copy_success = self.clipboard_manager.copy_to_clipboard(questions)
+                        
+                        if copy_success:
+                            logger.info("Questions successfully copied to clipboard")
+                        else:
+                            logger.warning("Failed to copy questions to clipboard")
                     
-                    if not questions or not questions.strip():
-                        logger.info("No questions detected in transcription")
-                        # Still emit timing update
-                        self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                        continue
-                    
-                    logger.info(
-                        f"Question extraction completed: {len(questions)} characters "
-                        f"in {extract_time:.2f}s"
-                    )
-                    
-                    # Emit question to GUI
-                    self.question_extracted.emit(timestamp, questions)
-                    
-                    # Emit timing metrics
-                    self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                    
-                    # Copy to clipboard
-                    logger.debug("Copying questions to clipboard...")
-                    copy_success = self.clipboard_manager.copy_to_clipboard(questions)
-                    
-                    if copy_success:
-                        logger.info("Questions successfully copied to clipboard")
                     else:
-                        logger.warning("Failed to copy questions to clipboard")
+                        # Accumulation Mode - accumulate transcriptions
+                        if self.accumulated_text:
+                            self.accumulated_text += " " + transcribed_text
+                        else:
+                            self.accumulated_text = transcribed_text
+                        
+                        logger.info(f"Text accumulated: {len(self.accumulated_text)} total characters")
+                        
+                        # Emit accumulated text to GUI
+                        self.accumulated_text_updated.emit(timestamp, self.accumulated_text)
+                        
+                        # Emit timing metrics (no extraction time in accumulation mode)
+                        self.timing_update.emit(audio_time, transcribe_time, 0.0)
                     
                 except Exception as e:
                     logger.error(f"Error processing audio chunk: {e}", exc_info=True)
@@ -352,3 +382,37 @@ class PipelineWorker(QThread):
         self._stop_requested = True
         self._running = False
         self.status_changed.emit("Stopping...")
+    
+    def set_extraction_mode(self, enabled: bool):
+        """
+        Toggle between extraction and accumulation modes.
+        
+        Args:
+            enabled: True for question extraction mode, False for accumulation mode
+        """
+        self.extraction_mode_enabled = enabled
+        mode_name = "Question Extraction" if enabled else "Accumulation"
+        logger.info(f"Mode switched to: {mode_name}")
+        
+        # Clear accumulated text when switching to extraction mode
+        if enabled:
+            self._clear_accumulated_text()
+    
+    def _check_silence(self):
+        """Check if silence threshold has been exceeded and clear accumulated text if so."""
+        if self.last_transcription_time is None:
+            return
+        
+        current_time = time.time()
+        silence_duration = current_time - self.last_transcription_time
+        
+        if silence_duration >= self.silence_threshold and self.accumulated_text:
+            logger.info(f"Silence detected for {silence_duration:.1f}s, clearing accumulated text")
+            self._clear_accumulated_text()
+    
+    def _clear_accumulated_text(self):
+        """Clear the accumulated text buffer and emit signal."""
+        if self.accumulated_text:
+            logger.debug("Clearing accumulated text buffer")
+            self.accumulated_text = ""
+            self.accumulated_text_cleared.emit()

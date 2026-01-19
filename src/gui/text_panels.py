@@ -77,6 +77,11 @@ class QuestionsPanel(QWidget):
     def __init__(self):
         """Initialize the questions panel."""
         super().__init__()
+        
+        # Mode tracking
+        self.is_accumulation_mode = False
+        self.accumulated_text = ""
+        
         self._setup_ui()
     
     def _setup_ui(self):
@@ -85,9 +90,9 @@ class QuestionsPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Title label
-        title = QLabel("Extracted Questions")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
+        self.title_label = QLabel("Extracted Questions")
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self.title_label)
         
         # Text display area
         self.text_display = QTextEdit()
@@ -139,6 +144,62 @@ class QuestionsPanel(QWidget):
         """Clear all question entries."""
         self.text_display.clear()
         self.questions_list.clear()
+    
+    def set_mode(self, is_extraction_mode: bool):
+        """
+        Set the panel mode.
+        
+        Args:
+            is_extraction_mode: True for question extraction mode, False for accumulation mode
+        """
+        self.is_accumulation_mode = not is_extraction_mode
+        
+        # Update title
+        if self.is_accumulation_mode:
+            self.title_label.setText("Accumulated Text")
+            self.text_display.setPlaceholderText("Waiting for speech...")
+        else:
+            self.title_label.setText("Extracted Questions")
+            self.text_display.setPlaceholderText("Waiting for questions...")
+        
+        # Clear display when mode changes
+        self.text_display.clear()
+        self.accumulated_text = ""
+        self.questions_list.clear()
+    
+    def add_accumulated_text(self, timestamp: str, text: str):
+        """
+        Add or update accumulated text.
+        
+        Args:
+            timestamp: Timestamp string (HH:MM:SS)
+            text: Accumulated text (full buffer)
+        """
+        self.accumulated_text = text
+        
+        # Format entry
+        entry = f"<span style='color: #569cd6;'>[{timestamp}]</span> {text}"
+        
+        # Replace display content
+        self.text_display.clear()
+        self.text_display.append(entry)
+        
+        # Auto-scroll to bottom
+        self.text_display.moveCursor(QTextCursor.End)
+    
+    def clear_accumulated_text(self):
+        """Clear accumulated text buffer and display."""
+        self.accumulated_text = ""
+        self.text_display.clear()
+    
+    def get_accumulated_text(self) -> str:
+        """
+        Get the current accumulated text.
+        
+        Returns:
+            Current accumulated text string
+        """
+        return self.accumulated_text
 
 
 class LogsPanel(QWidget):
