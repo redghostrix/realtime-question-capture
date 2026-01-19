@@ -10,7 +10,8 @@ import numpy as np
 from typing import Optional, Dict, List, Any
 from faster_whisper import WhisperModel
 
-from . import config
+from .config import settings
+from .exceptions import TranscriptionError
 
 # Module-level logger
 logger = logging.getLogger(__name__)
@@ -51,14 +52,14 @@ class WhisperTranscriber:
         
         Args:
             model_size: Whisper model size (tiny, base, small, medium, large).
-                       Defaults to config.WHISPER_MODEL.
+                       Defaults to settings.whisper_model.
             device: Device to run inference on ("cuda" or "cpu").
             compute_type: Computation type ("float16" for GPU, "int8" for CPU).
             language: Force specific language (None for auto-detection).
             beam_size: Beam size for transcription (higher = more accurate but slower).
             vad_filter: Enable voice activity detection to skip silence.
         """
-        self.model_size = model_size or config.WHISPER_MODEL
+        self.model_size = model_size or settings.whisper_model
         self.device = device
         self.compute_type = compute_type
         self.language = language
@@ -91,7 +92,7 @@ class WhisperTranscriber:
                 f"RuntimeError loading Whisper model '{self.model_size}' on {self.device}: {e}. "
                 f"GPU may not be available or out of memory."
             )
-            raise RuntimeError(
+            raise TranscriptionError(
                 f"Failed to initialize Whisper model on {self.device}. "
                 f"Check GPU availability and memory."
             ) from e
@@ -102,7 +103,7 @@ class WhisperTranscriber:
                 f"OSError loading Whisper model '{self.model_size}': {e}. "
                 f"Model may not exist or download failed."
             )
-            raise OSError(
+            raise TranscriptionError(
                 f"Failed to load or download Whisper model '{self.model_size}'. "
                 f"Check network connection and model name."
             ) from e
@@ -112,7 +113,9 @@ class WhisperTranscriber:
             logger.error(
                 f"Unexpected error initializing Whisper model '{self.model_size}': {e}"
             )
-            raise
+            raise TranscriptionError(
+                f"Unexpected error initializing Whisper model: {e}"
+            ) from e
     
     def _convert_audio_format(self, audio_data: np.ndarray) -> np.ndarray:
         """
@@ -129,7 +132,7 @@ class WhisperTranscriber:
         """
         if audio_data is None or len(audio_data) == 0:
             logger.warning("Received empty audio data for conversion")
-            raise ValueError("Audio data is empty")
+            raise TranscriptionError("Audio data is empty")
         
         logger.debug(
             f"Converting audio: shape={audio_data.shape}, dtype={audio_data.dtype}"
@@ -180,11 +183,11 @@ class WhisperTranscriber:
             )
         
         # Check minimum audio length (e.g., 0.1 seconds = 1600 samples at 16kHz)
-        min_samples = int(0.1 * config.SAMPLE_RATE)
+        min_samples = int(0.1 * settings.sample_rate)
         if len(audio_data) < min_samples:
             logger.warning(
                 f"Audio chunk too short: {len(audio_data)} samples "
-                f"({len(audio_data) / config.SAMPLE_RATE:.3f}s). Minimum: {min_samples} samples."
+                f"({len(audio_data) / settings.sample_rate:.3f}s). Minimum: {min_samples} samples."
             )
             return {"text": "", "segments": []}
         
@@ -194,7 +197,7 @@ class WhisperTranscriber:
             
             logger.debug(
                 f"Starting transcription: {len(audio_data)} samples "
-                f"({len(audio_data) / config.SAMPLE_RATE:.2f}s)"
+                f"({len(audio_data) / settings.sample_rate:.2f}s)"
             )
             
             # Transcribe with faster-whisper
@@ -248,7 +251,7 @@ class WhisperTranscriber:
             if "out of memory" in error_msg or "cuda" in error_msg:
                 logger.error(
                     f"GPU error during transcription: {e}. "
-                    f"Audio: {len(audio_data)} samples ({len(audio_data) / config.SAMPLE_RATE:.2f}s). "
+                    f"Audio: {len(audio_data)} samples ({len(audio_data) / settings.sample_rate:.2f}s). "
                     f"Suggestions: reduce chunk duration, use smaller model, or close GPU applications."
                 )
                 
@@ -273,7 +276,7 @@ class WhisperTranscriber:
             # General transcription failures
             logger.error(
                 f"Unexpected error during transcription: {e}. "
-                f"Audio: {len(audio_data)} samples ({len(audio_data) / config.SAMPLE_RATE:.2f}s)"
+                f"Audio: {len(audio_data)} samples ({len(audio_data) / settings.sample_rate:.2f}s)"
             )
             return None
     

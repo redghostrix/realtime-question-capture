@@ -11,7 +11,8 @@ import threading
 import numpy as np
 import pyaudiowpatch as pyaudio
 
-from .config import SAMPLE_RATE, CHUNK_DURATION, CHANNELS
+from .config import settings
+from .exceptions import AudioCaptureError
 
 
 logger = logging.getLogger(__name__)
@@ -31,15 +32,15 @@ class AudioCapture:
         self.p = pyaudio.PyAudio()
         
         # Store configuration parameters
-        self.sample_rate = SAMPLE_RATE
-        self.chunk_duration = CHUNK_DURATION
-        self.channels = CHANNELS
+        self.sample_rate = settings.sample_rate
+        self.chunk_duration = settings.chunk_duration
+        self.channels = settings.channels
         
         # Calculate chunk size in frames, then convert to samples
         # frames_per_chunk = sample_rate * chunk_duration
         # target_samples = frames_per_chunk * channels
-        self.frames_per_chunk = SAMPLE_RATE * CHUNK_DURATION
-        self.chunk_size = self.frames_per_chunk * CHANNELS
+        self.frames_per_chunk = settings.sample_rate * settings.chunk_duration
+        self.chunk_size = self.frames_per_chunk * settings.channels
         
         # Initialize thread-safe audio queue for buffering
         self.audio_queue = queue.Queue()
@@ -137,7 +138,60 @@ class AudioCapture:
             "ensure your audio drivers support loopback capture."
         )
         logger.error(error_msg)
-        raise RuntimeError(error_msg)
+        raise AudioCaptureError(error_msg)
+    
+    def validate_device(self, device_index: int) -> None:
+        """Validate that the audio device is available and compatible.
+        
+        Args:
+            device_index: Index of the device to validate
+            
+        Raises:
+            AudioCaptureError: If device is unavailable or incompatible
+        """
+        logger.debug(f"Validating audio device at index {device_index}")
+        
+        try:
+            # Get device info
+            device_info = self.p.get_device_info_by_index(device_index)
+            device_name = device_info.get('name', 'Unknown')
+            
+            # Check if device has input channels
+            max_input_channels = device_info.get('maxInputChannels', 0)
+            if max_input_channels == 0:
+                raise AudioCaptureError(
+                    f"Device '{device_name}' (index={device_index}) has no input channels. "
+                    f"Cannot capture audio from this device."
+                )
+            
+            # Check if device supports our required channel count
+            if self.channels > max_input_channels:
+                raise AudioCaptureError(
+                    f"Device '{device_name}' (index={device_index}) has only {max_input_channels} channels, "
+                    f"but {self.channels} channels were requested."
+                )
+            
+            # Get device's native sample rate
+            device_sample_rate = device_info.get('defaultSampleRate')
+            if device_sample_rate is None or device_sample_rate <= 0:
+                raise AudioCaptureError(
+                    f"Device '{device_name}' (index={device_index}) has invalid sample rate: {device_sample_rate}"
+                )
+            
+            # Log device validation success
+            logger.info(
+                f"Device validation successful: '{device_name}' (index={device_index}) - "
+                f"{max_input_channels} channels, {device_sample_rate}Hz sample rate"
+            )
+            
+        except AudioCaptureError:
+            # Re-raise our custom errors
+            raise
+        except Exception as e:
+            # Wrap other errors
+            raise AudioCaptureError(
+                f"Failed to validate device at index {device_index}: {e}"
+            ) from e
     
     def _audio_callback(self, in_data, frame_count, time_info, status):
         """
@@ -208,6 +262,9 @@ class AudioCapture:
             # Get the default WASAPI loopback device
             device_index = self._get_default_wasapi_loopback_device()
             
+            # Validate device before opening stream
+            self.validate_device(device_index)
+            
             # Get device info for logging
             device_info = self.p.get_device_info_by_index(device_index)
             device_name = device_info.get('name', 'Unknown')
@@ -252,7 +309,7 @@ class AudioCapture:
             
         except Exception as e:
             logger.error("Failed to start audio capture: %s", e)
-            raise RuntimeError(f"Failed to start audio capture: {e}")
+            raise AudioCaptureError(f"Failed to start audio capture: {e}")
     
     def stop(self):
         """Stop capturing audio and clean up the stream."""

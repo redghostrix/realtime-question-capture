@@ -31,7 +31,16 @@ conda activate question-capture
 pip install -r requirements.txt
 ```
 
-### 4. Verify installation
+### 4. Configure environment variables
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env to customize configuration (optional)
+# The default values work out-of-the-box if llama-server is running on localhost:8080
+```
+
+### 5. Verify installation
 ```bash
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 ```
@@ -40,16 +49,33 @@ Expected output:
 - PyTorch: 2.7.0
 - CUDA available: True
 
-### 5. Start llama-server
+### 6. Start llama-server
 Ensure llama-server is running on `http://localhost:8080` before starting the application.
 
 ## Configuration
 
-Edit `src/config.py` to customize:
-- `WHISPER_MODEL`: Whisper model size (tiny, base, small, medium, large)
-- `LLAMA_SERVER_URL`: LLM server endpoint
-- `SAMPLE_RATE`: Audio sample rate (default: 16000 Hz)
-- `CHUNK_DURATION`: Audio processing chunk duration (default: 5 seconds)
+The application uses environment-based configuration. Create a `.env` file in the project root (or copy from `.env.example`):
+
+```bash
+# Whisper Configuration
+WHISPER_MODEL=base                    # Options: tiny, base, small, medium, large
+
+# LLM Server Configuration
+LLAMA_SERVER_URL=http://localhost:8080/v1/chat/completions
+QUESTION_EXTRACTOR_MODEL_NAME=llama-3.3-70b-versatile
+QUESTION_EXTRACTOR_MAX_RETRIES=3     # 0-10
+QUESTION_EXTRACTOR_TIMEOUT=30        # seconds (1-300)
+
+# Audio Capture Configuration
+SAMPLE_RATE=16000                    # Hz (8000-48000)
+CHUNK_DURATION=5                     # seconds (1-60)
+CHANNELS=1                           # 1=mono, 2=stereo
+
+# Logging Configuration
+LOG_LEVEL=INFO                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+```
+
+All settings are optional and will use the defaults shown above if not specified. The configuration provides type validation and will report errors if invalid values are provided.
 
 ## Architecture
 
@@ -133,14 +159,14 @@ python scripts/test_transcription_manual.py --live --duration 30
 - See [TESTING.md](TESTING.md) for detailed troubleshooting
 
 **Transcription issues:**
-- **CUDA out of memory**: Use smaller model (`--model tiny`) or reduce `CHUNK_DURATION` in `src/config.py`
+- **CUDA out of memory**: Set `WHISPER_MODEL=tiny` in `.env` or reduce `CHUNK_DURATION`
 - **Slow transcription**: Verify GPU is being used, close other GPU applications
-- **Inaccurate transcriptions**: Use larger model (`--model small` or `--model medium`)
+- **Inaccurate transcriptions**: Set `WHISPER_MODEL=small` or `WHISPER_MODEL=medium` in `.env`
 - See [TESTING_TRANSCRIPTION.md](TESTING_TRANSCRIPTION.md) for detailed troubleshooting
 
 **llama-server connection failed:**
 - Verify llama-server is running: `curl http://localhost:8080/health`
-- Check `LLAMA_SERVER_URL` in `src/config.py`
+- Check `LLAMA_SERVER_URL` in `.env` file
 
 ## License
 

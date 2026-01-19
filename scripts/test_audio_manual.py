@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.audio_capture import AudioCapture
-from src.config import SAMPLE_RATE, CHUNK_DURATION, CHANNELS
+from src.config import settings
 
 
 def calculate_rms_db(audio_data):
@@ -244,10 +244,10 @@ Examples:
     print("\n" + "="*80)
     print("REAL-TIME AUDIO CAPTURE TEST")
     print("="*80)
-    print(f"Sample Rate: {SAMPLE_RATE} Hz")
-    print(f"Channels: {CHANNELS} (mono)")
-    print(f"Chunk Duration: {CHUNK_DURATION} seconds")
-    print(f"Chunk Size: {SAMPLE_RATE * CHUNK_DURATION * CHANNELS:,} samples")
+    print(f"Sample Rate: {settings.sample_rate} Hz")
+    print(f"Channels: {settings.channels} (mono)")
+    print(f"Chunk Duration: {settings.chunk_duration} seconds")
+    print(f"Chunk Size: {settings.sample_rate * settings.chunk_duration * settings.channels:,} samples")
     print(f"Test Duration: {args.duration} seconds")
     print("="*80)
     
@@ -319,7 +319,7 @@ Examples:
                     print(f"\n{'-'*80}")
                     print(f"[TIME] {elapsed:.1f}s / {args.duration}s")
                     print(f"[CHUNK] #{chunk_count}")
-                    print(f"   Samples: {len(chunk):,} ({len(chunk) / SAMPLE_RATE:.2f}s)")
+                    print(f"   Samples: {len(chunk):,} ({len(chunk) / settings.sample_rate:.2f}s)")
                     print(f"   Time since last chunk: {time_since_last:.3f}s")
                     print(f"   Total samples captured: {total_samples:,}")
                     print(f"   Chunk rate: {chunk_count / elapsed:.3f} chunks/sec")
@@ -351,7 +351,7 @@ Examples:
                     # No chunk available yet - still buffering
                     if chunk_count == 0:
                         # First chunk not received yet
-                        print(f"\r[BUFFERING] {elapsed:.1f}s elapsed, ~{CHUNK_DURATION - elapsed:.1f}s until first chunk", end='', flush=True)
+                        print(f"\r[BUFFERING] {elapsed:.1f}s elapsed, ~{settings.chunk_duration - elapsed:.1f}s until first chunk", end='', flush=True)
                     
                     # Small sleep to avoid busy waiting
                     time.sleep(0.1)
@@ -368,13 +368,13 @@ Examples:
         print(f"Chunks captured: {chunk_count}")
         print(f"Total samples: {total_samples:,}")
         print(f"Average chunk rate: {chunk_count / elapsed:.3f} chunks/sec")
-        print(f"Expected chunks: ~{int(elapsed / CHUNK_DURATION)}")
-        print(f"Data captured: {total_samples / SAMPLE_RATE:.2f} seconds of audio")
+        print(f"Expected chunks: ~{int(elapsed / settings.chunk_duration)}")
+        print(f"Data captured: {total_samples / settings.sample_rate:.2f} seconds of audio")
         print("="*80)
         
         # Save to WAV file
         if not args.no_save and audio_chunks:
-            save_audio_to_wav(audio_chunks, args.output, SAMPLE_RATE)
+            save_audio_to_wav(audio_chunks, args.output, settings.sample_rate)
         elif args.no_save:
             print("\n[!] Skipping WAV file save (--no-save flag)")
         

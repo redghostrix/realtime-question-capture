@@ -1,0 +1,18 @@
+name: question-capture
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+dependencies:
+  - python>=3.10
+  - cudatoolkit=12.8
+  - pip
+  - pip:
+    - torch==2.7.0
+    - ctranslate2>=4.6.3
+    - faster-whisper
+    - pyaudiowpatch
+    - numpy
+    - pyperclip
+    - requests
+    - dspy-ai
