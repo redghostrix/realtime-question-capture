@@ -92,12 +92,40 @@ System Audio Output → Audio Loopback → faster-whisper → llama-server → C
 
 ## Usage
 
+### CLI Mode
+
+Run the application in command-line mode:
+
 ```bash
 conda activate question-capture
 python src/main.py
 ```
 
 Press `Ctrl+C` to stop the application.
+
+### GUI Mode
+
+Launch the desktop monitoring application:
+
+```bash
+conda activate question-capture
+python src/main_gui.py
+```
+
+**Features:**
+- Real-time monitoring of transcription and question extraction
+- Start/Stop/Pause controls
+- Timing metrics for each pipeline stage (Audio, Transcription, Extraction)
+- Dark mode interface
+- Copy individual questions to clipboard
+- Live log display with color-coding (INFO/WARNING/ERROR)
+
+**Interface Layout:**
+- **Control Panel** (Left): Start/Stop/Pause buttons and configuration display
+- **Transcription Panel** (Top Right): Shows raw transcribed text with timestamps
+- **Questions Panel** (Middle Right): Shows extracted questions with timestamps
+- **Logs Panel** (Bottom Right): Shows application logs with color-coding
+- **Status Bar** (Bottom): Displays timing metrics for each pipeline stage
 
 ## Testing
 
