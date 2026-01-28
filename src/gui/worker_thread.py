@@ -1,8 +1,8 @@
 """
 Worker thread for running the pipeline in the background.
 
-This module provides a QThread that runs the audio capture, transcription,
-and question extraction pipeline without blocking the GUI.
+This module provides a QThread that runs the audio capture and transcription
+pipeline without blocking the GUI.
 """
 
 import logging
@@ -12,8 +12,6 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from src.audio_capture import AudioCapture
 from src.transcription import WhisperTranscriber
-from src.question_extractor import QuestionExtractor
-from src.clipboard_manager import ClipboardManager
 from src.config import settings
 
 
@@ -22,28 +20,28 @@ logger = logging.getLogger(__name__)
 
 class PipelineWorker(QThread):
     """
-    Worker thread that runs the question capture pipeline.
+    Worker thread that runs the transcription pipeline.
     
     This thread runs the complete pipeline: audio capture → transcription →
-    question extraction → clipboard copy. It emits signals for GUI updates.
+    text accumulation. It emits signals for GUI updates.
     
     Signals:
         transcription_ready: Emitted when transcription completes
                            Args: timestamp (str), text (str)
-        question_extracted: Emitted when questions are extracted
-                          Args: timestamp (str), question (str)
         timing_update: Emitted with timing metrics
-                      Args: audio_time (float), trans_time (float), extract_time (float)
+                      Args: audio_time (float), trans_time (float)
         status_changed: Emitted when pipeline status changes
                        Args: status (str) - "Running", "Stopped", "Paused", "Error"
         initialization_complete: Emitted when all components are initialized
                                Args: success (bool), message (str)
+        accumulated_text_updated: Emitted when accumulated text is updated
+                                Args: timestamp (str), accumulated_text (str)
+        accumulated_text_cleared: Emitted when silence clears accumulated text
     """
     
     # Define signals
     transcription_ready = pyqtSignal(str, str)  # timestamp, text
-    question_extracted = pyqtSignal(str, str)  # timestamp, question
-    timing_update = pyqtSignal(float, float, float)  # audio_time, trans_time, extract_time
+    timing_update = pyqtSignal(float, float)  # audio_time, trans_time
     status_changed = pyqtSignal(str)  # status message
     initialization_complete = pyqtSignal(bool, str)  # success, message
     accumulated_text_updated = pyqtSignal(str, str)  # timestamp, accumulated_text
@@ -56,16 +54,13 @@ class PipelineWorker(QThread):
         # Pipeline components
         self.audio_capture: Optional[AudioCapture] = None
         self.transcriber: Optional[WhisperTranscriber] = None
-        self.question_extractor: Optional[QuestionExtractor] = None
-        self.clipboard_manager: Optional[ClipboardManager] = None
         
         # Thread control flags
         self._running = False
         self._paused = False
         self._stop_requested = False
         
-        # Mode control
-        self.extraction_mode_enabled = True  # Default to extraction mode
+        # Text accumulation
         self.accumulated_text = ""
         self.last_transcription_time = None
         self.silence_threshold = 5.0  # seconds
@@ -122,21 +117,6 @@ class PipelineWorker(QThread):
             self.transcriber = WhisperTranscriber(model_size=settings.whisper_model)
             logger.info("WhisperTranscriber initialized")
             
-            # Initialize QuestionExtractor
-            logger.info("Initializing QuestionExtractor...")
-            self.question_extractor = QuestionExtractor(
-                llama_server_url=settings.llama_server_url,
-                model_name=settings.question_extractor_model_name,
-                max_retries=settings.question_extractor_max_retries,
-                timeout=settings.question_extractor_timeout
-            )
-            logger.info("QuestionExtractor initialized")
-            
-            # Initialize ClipboardManager
-            logger.info("Initializing ClipboardManager...")
-            self.clipboard_manager = ClipboardManager()
-            logger.info("ClipboardManager initialized")
-            
             # Check GPU availability
             device_info = self.transcriber.get_device_info()
             if device_info["gpu_available"]:
@@ -146,16 +126,6 @@ class PipelineWorker(QThread):
                 )
             else:
                 logger.warning("GPU not available, transcription will use CPU")
-            
-            # Check llama-server health
-            server_healthy = self.question_extractor.check_server_health()
-            if server_healthy:
-                logger.info("LLM server health check: PASSED")
-            else:
-                logger.warning(
-                    "LLM server health check: FAILED. "
-                    f"Server at {settings.llama_server_url} may not be running."
-                )
             
             return True
             
@@ -167,8 +137,8 @@ class PipelineWorker(QThread):
         """
         Main processing loop.
         
-        Continuously captures audio, transcribes, extracts questions,
-        and copies to clipboard until stop is requested.
+        Continuously captures audio, transcribes, and accumulates text
+        until stop is requested.
         """
         try:
             # Start audio capture
@@ -190,6 +160,8 @@ class PipelineWorker(QThread):
                     if audio_chunk is None:
                         # No chunk available yet, sleep briefly
                         time.sleep(0.1)
+                        # Check for silence timeout
+                        self._check_silence()
                         continue
                     
                     # Calculate audio duration
@@ -209,9 +181,8 @@ class PipelineWorker(QThread):
                     
                     if transcription is None or not transcription.get("text"):
                         logger.info("No transcription produced (silence or error)")
-                        # Check for silence timeout in accumulation mode
-                        if not self.extraction_mode_enabled:
-                            self._check_silence()
+                        # Check for silence timeout
+                        self._check_silence()
                         continue
                     
                     transcribed_text = transcription["text"]
@@ -228,59 +199,19 @@ class PipelineWorker(QThread):
                     # Emit transcription to GUI
                     self.transcription_ready.emit(timestamp, transcribed_text)
                     
-                    if self.extraction_mode_enabled:
-                        # Question Extraction Mode - current behavior
-                        logger.debug("Starting question extraction...")
-                        extract_start = time.time()
-                        questions = self.question_extractor.extract_questions(transcribed_text)
-                        extract_time = time.time() - extract_start
-                        
-                        if questions is None:
-                            logger.warning("Question extraction failed")
-                            # Still emit timing update
-                            self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                            continue
-                        
-                        if not questions or not questions.strip():
-                            logger.info("No questions detected in transcription")
-                            # Still emit timing update
-                            self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                            continue
-                        
-                        logger.info(
-                            f"Question extraction completed: {len(questions)} characters "
-                            f"in {extract_time:.2f}s"
-                        )
-                        
-                        # Emit question to GUI
-                        self.question_extracted.emit(timestamp, questions)
-                        
-                        # Emit timing metrics
-                        self.timing_update.emit(audio_time, transcribe_time, extract_time)
-                        
-                        # Copy to clipboard
-                        logger.debug("Copying questions to clipboard...")
-                        copy_success = self.clipboard_manager.copy_to_clipboard(questions)
-                        
-                        if copy_success:
-                            logger.info("Questions successfully copied to clipboard")
-                        else:
-                            logger.warning("Failed to copy questions to clipboard")
-                    
+                    # Accumulate transcriptions
+                    if self.accumulated_text:
+                        self.accumulated_text += " " + transcribed_text
                     else:
-                        # Accumulation Mode - accumulate transcriptions
-                        if self.accumulated_text:
-                            self.accumulated_text += " " + transcribed_text
-                        else:
-                            self.accumulated_text = transcribed_text
-                        
-                        logger.info(f"Text accumulated: {len(self.accumulated_text)} total characters")
-                        
-                        # Emit accumulated text to GUI
-                        self.accumulated_text_updated.emit(timestamp, self.accumulated_text)
-                        
-                        # Emit timing metrics (no extraction time in accumulation mode)
-                        self.timing_update.emit(audio_time, transcribe_time, 0.0)
+                        self.accumulated_text = transcribed_text
+                    
+                    logger.info(f"Text accumulated: {len(self.accumulated_text)} total characters")
+                    
+                    # Emit accumulated text to GUI
+                    self.accumulated_text_updated.emit(timestamp, self.accumulated_text)
+                    
+                    # Emit timing metrics
+                    self.timing_update.emit(audio_time, transcribe_time)
                     
                 except Exception as e:
                     logger.error(f"Error processing audio chunk: {e}", exc_info=True)
@@ -307,22 +238,6 @@ class PipelineWorker(QThread):
                     logger.error(f"Error stopping audio capture: {e}")
             
             # Close components in reverse initialization order
-            if self.clipboard_manager is not None:
-                try:
-                    logger.info("Closing ClipboardManager...")
-                    self.clipboard_manager.close()
-                    logger.info("ClipboardManager closed")
-                except Exception as e:
-                    logger.error(f"Error closing ClipboardManager: {e}")
-            
-            if self.question_extractor is not None:
-                try:
-                    logger.info("Closing QuestionExtractor...")
-                    self.question_extractor.close()
-                    logger.info("QuestionExtractor closed")
-                except Exception as e:
-                    logger.error(f"Error closing QuestionExtractor: {e}")
-            
             if self.transcriber is not None:
                 try:
                     logger.info("Closing WhisperTranscriber...")
@@ -382,21 +297,6 @@ class PipelineWorker(QThread):
         self._stop_requested = True
         self._running = False
         self.status_changed.emit("Stopping...")
-    
-    def set_extraction_mode(self, enabled: bool):
-        """
-        Toggle between extraction and accumulation modes.
-        
-        Args:
-            enabled: True for question extraction mode, False for accumulation mode
-        """
-        self.extraction_mode_enabled = enabled
-        mode_name = "Question Extraction" if enabled else "Accumulation"
-        logger.info(f"Mode switched to: {mode_name}")
-        
-        # Clear accumulated text when switching to extraction mode
-        if enabled:
-            self._clear_accumulated_text()
     
     def _check_silence(self):
         """Check if silence threshold has been exceeded and clear accumulated text if so."""

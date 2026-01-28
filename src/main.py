@@ -1,8 +1,8 @@
-"""Main pipeline orchestration for real-time question capture.
+"""Main pipeline orchestration for real-time transcription capture.
 
 This module orchestrates the complete pipeline: audio capture → transcription →
-question extraction → clipboard copy. It implements a continuous event loop with
-graceful shutdown handling and comprehensive error recovery.
+text accumulation. It implements a continuous event loop with graceful shutdown
+handling and comprehensive error recovery.
 """
 
 import logging
@@ -18,14 +18,10 @@ except ImportError:
 
 from src.audio_capture import AudioCapture
 from src.transcription import WhisperTranscriber
-from src.question_extractor import QuestionExtractor
-from src.clipboard_manager import ClipboardManager
 from src.config import settings
 from src.exceptions import (
     AudioCaptureError,
-    TranscriptionError,
-    QuestionDetectionError,
-    ClipboardError
+    TranscriptionError
 )
 
 # Module-level logger
@@ -47,13 +43,12 @@ def signal_handler(signum, frame):
     logger.info("Shutdown requested (Ctrl+C). Cleaning up...")
 
 
-class RealtimeQuestionCapture:
-    """Main pipeline orchestrator for real-time question capture.
+class RealtimeTranscriptionCapture:
+    """Main pipeline orchestrator for real-time transcription capture.
     
-    This class coordinates all components of the real-time question capture
-    pipeline: audio capture, transcription, question extraction, and clipboard
-    management. It implements a continuous event loop that polls for audio chunks,
-    processes them through the pipeline, and copies detected questions to clipboard.
+    This class coordinates all components of the real-time transcription capture
+    pipeline: audio capture and transcription. It implements a continuous event
+    loop that polls for audio chunks and transcribes them.
     
     Features:
     - Continuous audio capture and processing
@@ -63,7 +58,7 @@ class RealtimeQuestionCapture:
     - Proper resource cleanup on exit
     
     Usage:
-        pipeline = RealtimeQuestionCapture()
+        pipeline = RealtimeTranscriptionCapture()
         pipeline.setup()
         pipeline.run()
         pipeline.cleanup()
@@ -73,12 +68,10 @@ class RealtimeQuestionCapture:
         """Initialize the pipeline with component references set to None."""
         self.audio_capture: Optional[AudioCapture] = None
         self.transcriber: Optional[WhisperTranscriber] = None
-        self.question_extractor: Optional[QuestionExtractor] = None
-        self.clipboard_manager: Optional[ClipboardManager] = None
         self.consecutive_errors = 0
         self.max_consecutive_errors = 10
         
-        logger.debug("RealtimeQuestionCapture initialized")
+        logger.debug("RealtimeTranscriptionCapture initialized")
     
     def check_cuda_version(self) -> None:
         """Check CUDA version compatibility.
@@ -153,8 +146,8 @@ class RealtimeQuestionCapture:
         This method:
         - Configures logging
         - Logs startup banner with configuration
-        - Initializes all components (audio, transcriber, extractor, clipboard)
-        - Performs health checks (GPU availability, llama-server health)
+        - Initializes all components (audio, transcriber)
+        - Performs health checks (GPU availability)
         
         Raises:
             Exception: If any component fails to initialize
@@ -168,17 +161,14 @@ class RealtimeQuestionCapture:
         
         # Log startup banner
         logger.info("=" * 80)
-        logger.info("Real-Time Question Capture Pipeline")
+        logger.info("Real-Time Transcription Capture Pipeline")
         logger.info("=" * 80)
         logger.info("Configuration:")
         logger.info(f"  Whisper Model: {settings.whisper_model}")
-        logger.info(f"  LLM Server URL: {settings.llama_server_url}")
         logger.info(f"  Sample Rate: {settings.sample_rate} Hz")
         logger.info(f"  Chunk Duration: {settings.chunk_duration} seconds")
         logger.info(f"  Channels: {settings.channels}")
         logger.info(f"  Log Level: {settings.log_level}")
-        logger.info(f"  Question Extractor Max Retries: {settings.question_extractor_max_retries}")
-        logger.info(f"  Question Extractor Timeout: {settings.question_extractor_timeout}s")
         logger.info("=" * 80)
         
         try:
@@ -198,21 +188,6 @@ class RealtimeQuestionCapture:
             self.transcriber = WhisperTranscriber(model_size=settings.whisper_model)
             logger.info("WhisperTranscriber initialized successfully")
             
-            # Initialize QuestionExtractor
-            logger.info("Initializing QuestionExtractor...")
-            self.question_extractor = QuestionExtractor(
-                llama_server_url=settings.llama_server_url,
-                model_name=settings.question_extractor_model_name,
-                max_retries=settings.question_extractor_max_retries,
-                timeout=settings.question_extractor_timeout
-            )
-            logger.info("QuestionExtractor initialized successfully")
-            
-            # Initialize ClipboardManager
-            logger.info("Initializing ClipboardManager...")
-            self.clipboard_manager = ClipboardManager()
-            logger.info("ClipboardManager initialized successfully")
-            
             # Perform startup checks
             logger.info("Performing startup checks...")
             
@@ -225,17 +200,6 @@ class RealtimeQuestionCapture:
                 )
             else:
                 logger.warning("GPU not available, transcription will use CPU")
-            
-            # Check llama-server health
-            server_healthy = self.question_extractor.check_server_health()
-            if server_healthy:
-                logger.info("LLM server health check: PASSED")
-            else:
-                logger.warning(
-                    "LLM server health check: FAILED. "
-                    f"Server at {settings.llama_server_url} may not be running. "
-                    "Question extraction may fail."
-                )
             
             logger.info("Setup completed successfully")
             
@@ -252,8 +216,7 @@ class RealtimeQuestionCapture:
         1. Start audio capture
         2. Poll for audio chunks
         3. Transcribe audio to text
-        4. Extract questions from text
-        5. Copy questions to clipboard
+        4. Log transcription results
         
         The loop continues until shutdown_requested is set to True (Ctrl+C).
         Exceptions within the loop are logged but don't stop the pipeline.
@@ -302,34 +265,6 @@ class RealtimeQuestionCapture:
                         f"in {transcribe_time:.2f}s - '{transcribed_text[:100]}...'"
                     )
                     
-                    # Extract questions
-                    logger.debug("Starting question extraction...")
-                    extract_start = time.time()
-                    questions = self.question_extractor.extract_questions(transcribed_text)
-                    extract_time = time.time() - extract_start
-                    
-                    if questions is None:
-                        logger.warning("Question extraction failed")
-                        continue
-                    
-                    if not questions or not questions.strip():
-                        logger.info("No questions detected in transcription")
-                        continue
-                    
-                    logger.info(
-                        f"Question extraction completed: {len(questions)} characters "
-                        f"in {extract_time:.2f}s"
-                    )
-                    
-                    # Copy to clipboard
-                    logger.debug("Copying questions to clipboard...")
-                    copy_success = self.clipboard_manager.copy_to_clipboard(questions)
-                    
-                    if copy_success:
-                        logger.info("Questions successfully copied to clipboard")
-                    else:
-                        logger.warning("Failed to copy questions to clipboard")
-                    
                 except KeyboardInterrupt:
                     # Let signal handler manage this
                     break
@@ -368,22 +303,6 @@ class RealtimeQuestionCapture:
                     logger.error(f"Error stopping audio capture: {e}")
             
             # Close components in reverse initialization order
-            if self.clipboard_manager is not None:
-                try:
-                    logger.info("Closing ClipboardManager...")
-                    self.clipboard_manager.close()
-                    logger.info("ClipboardManager closed")
-                except Exception as e:
-                    logger.error(f"Error closing ClipboardManager: {e}")
-            
-            if self.question_extractor is not None:
-                try:
-                    logger.info("Closing QuestionExtractor...")
-                    self.question_extractor.close()
-                    logger.info("QuestionExtractor closed")
-                except Exception as e:
-                    logger.error(f"Error closing QuestionExtractor: {e}")
-            
             if self.transcriber is not None:
                 try:
                     logger.info("Closing WhisperTranscriber...")
@@ -407,7 +326,7 @@ class RealtimeQuestionCapture:
 
 
 def main() -> int:
-    """Main entry point for the real-time question capture pipeline.
+    """Main entry point for the real-time transcription capture pipeline.
     
     This function:
     - Registers signal handler for graceful shutdown
@@ -425,7 +344,7 @@ def main() -> int:
     
     try:
         # Create pipeline instance
-        pipeline = RealtimeQuestionCapture()
+        pipeline = RealtimeTranscriptionCapture()
         
         # Setup components
         pipeline.setup()

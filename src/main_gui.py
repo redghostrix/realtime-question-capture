@@ -1,5 +1,5 @@
 """
-GUI entry point for real-time question capture application.
+GUI entry point for real-time transcription capture application.
 
 This module provides the main entry point for the PyQt5-based desktop
 monitoring application.
@@ -30,11 +30,10 @@ def main():
     logger = logging.getLogger(__name__)
     
     logger.info("=" * 80)
-    logger.info("Real-Time Question Capture - GUI Mode")
+    logger.info("Real-Time Transcription Capture - GUI Mode")
     logger.info("=" * 80)
     logger.info("Configuration:")
     logger.info(f"  Whisper Model: {settings.whisper_model}")
-    logger.info(f"  LLM Server URL: {settings.llama_server_url}")
     logger.info(f"  Sample Rate: {settings.sample_rate} Hz")
     logger.info(f"  Chunk Duration: {settings.chunk_duration} seconds")
     logger.info(f"  Channels: {settings.channels}")
@@ -43,7 +42,7 @@ def main():
     
     # Create Qt application
     app = QApplication(sys.argv)
-    app.setApplicationName("Real-Time Question Capture")
+    app.setApplicationName("Real-Time Transcription Capture")
     
     # Enable high DPI scaling
     app.setAttribute(Qt.AA_EnableHighDpiScaling, True)

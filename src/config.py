@@ -1,4 +1,4 @@
-"""Configuration management for the real-time question capture pipeline.
+"""Configuration management for the real-time transcription capture pipeline.
 
 This module provides type-safe configuration management using Pydantic Settings
 with automatic .env file loading and validation.
@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     
     Example .env file:
         WHISPER_MODEL=small
-        LLAMA_SERVER_URL=http://localhost:8080/v1/chat/completions
         SAMPLE_RATE=16000
     """
     
@@ -27,31 +26,6 @@ class Settings(BaseSettings):
     whisper_model: str = Field(
         default="base",
         description="Whisper model size for speech transcription"
-    )
-    
-    # LLM server configuration
-    llama_server_url: str = Field(
-        default="http://localhost:8080/v1/chat/completions",
-        description="LLM server endpoint URL for question extraction"
-    )
-    
-    question_extractor_model_name: str = Field(
-        default="llama-3.3-70b-versatile",
-        description="Model identifier for question extraction"
-    )
-    
-    question_extractor_max_retries: int = Field(
-        default=3,
-        ge=0,
-        le=10,
-        description="Maximum number of retry attempts for question extraction"
-    )
-    
-    question_extractor_timeout: int = Field(
-        default=30,
-        ge=1,
-        le=300,
-        description="Request timeout in seconds for question extraction"
     )
     
     # Audio capture configuration
@@ -84,14 +58,6 @@ class Settings(BaseSettings):
         """Validate sample rate is reasonable for audio processing."""
         if v < 8000 or v > 48000:
             raise ValueError("sample_rate must be between 8000 and 48000 Hz")
-        return v
-    
-    @field_validator("llama_server_url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        """Validate LLM server URL format."""
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("llama_server_url must start with http:// or https://")
         return v
     
     model_config = SettingsConfigDict(

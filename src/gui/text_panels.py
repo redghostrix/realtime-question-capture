@@ -2,7 +2,7 @@
 Custom text panel widgets for displaying pipeline data.
 
 This module provides specialized QWidget-based panels for displaying
-transcriptions, extracted questions, and logs with appropriate formatting.
+transcriptions, accumulated text, and logs with appropriate formatting.
 """
 
 from PyQt5.QtWidgets import (
@@ -68,18 +68,17 @@ class TranscriptionPanel(QWidget):
 
 class QuestionsPanel(QWidget):
     """
-    Panel for displaying extracted questions with copy buttons.
+    Panel for displaying accumulated text.
     
-    Shows extracted questions with timestamps and provides individual
-    copy-to-clipboard buttons for each question.
+    Shows accumulated transcribed text with timestamps and provides
+    copy-to-clipboard functionality.
     """
     
     def __init__(self):
-        """Initialize the questions panel."""
+        """Initialize the accumulated text panel."""
         super().__init__()
         
-        # Mode tracking
-        self.is_accumulation_mode = False
+        # Text accumulation
         self.accumulated_text = ""
         
         self._setup_ui()
@@ -90,82 +89,22 @@ class QuestionsPanel(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Title label
-        self.title_label = QLabel("Extracted Questions")
+        self.title_label = QLabel("Accumulated Text")
         self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(self.title_label)
         
         # Text display area
         self.text_display = QTextEdit()
         self.text_display.setReadOnly(True)
-        self.text_display.setPlaceholderText("Waiting for questions...")
+        self.text_display.setPlaceholderText("Waiting for speech...")
         layout.addWidget(self.text_display)
         
         self.setLayout(layout)
-        
-        # Store questions for copy functionality
-        self.questions_list = []
-    
-    def add_question(self, timestamp: str, question: str):
-        """
-        Add a new question entry.
-        
-        Args:
-            timestamp: Timestamp string (HH:MM:SS)
-            question: Extracted question text
-        """
-        # Store question
-        self.questions_list.append((timestamp, question))
-        
-        # Format entry with copy button indicator
-        entry = (
-            f"<span style='color: #569cd6;'>[{timestamp}]</span> "
-            f"<span style='color: #4ec9b0;'>{question}</span> "
-            f"<span style='color: #808080; font-size: 10px;'>[Ctrl+C to copy]</span>"
-        )
-        
-        # Append to display
-        self.text_display.append(entry)
-        
-        # Auto-scroll to bottom
-        self.text_display.moveCursor(QTextCursor.End)
-    
-    def copy_last_question(self):
-        """Copy the last question to clipboard."""
-        if self.questions_list:
-            _, question = self.questions_list[-1]
-            try:
-                pyperclip.copy(question)
-                return True
-            except Exception:
-                return False
-        return False
     
     def clear(self):
-        """Clear all question entries."""
-        self.text_display.clear()
-        self.questions_list.clear()
-    
-    def set_mode(self, is_extraction_mode: bool):
-        """
-        Set the panel mode.
-        
-        Args:
-            is_extraction_mode: True for question extraction mode, False for accumulation mode
-        """
-        self.is_accumulation_mode = not is_extraction_mode
-        
-        # Update title
-        if self.is_accumulation_mode:
-            self.title_label.setText("Accumulated Text")
-            self.text_display.setPlaceholderText("Waiting for speech...")
-        else:
-            self.title_label.setText("Extracted Questions")
-            self.text_display.setPlaceholderText("Waiting for questions...")
-        
-        # Clear display when mode changes
+        """Clear all accumulated text."""
         self.text_display.clear()
         self.accumulated_text = ""
-        self.questions_list.clear()
     
     def add_accumulated_text(self, timestamp: str, text: str):
         """

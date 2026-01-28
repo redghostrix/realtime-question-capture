@@ -50,7 +50,7 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         """Set up the user interface."""
         # Set window properties
-        self.setWindowTitle("Real-Time Question Capture Monitor")
+        self.setWindowTitle("Real-Time Transcription Monitor")
         self.setMinimumSize(1200, 800)
         
         # Create central widget
@@ -96,7 +96,6 @@ class MainWindow(QMainWindow):
         self.control_panel.start_clicked.connect(self._on_start)
         self.control_panel.stop_clicked.connect(self._on_stop)
         self.control_panel.pause_clicked.connect(self._on_pause)
-        self.control_panel.extraction_mode_changed.connect(self._on_extraction_mode_changed)
     
     def _setup_logging(self):
         """Set up the custom logging handler for GUI display."""
@@ -224,7 +223,6 @@ class MainWindow(QMainWindow):
         
         # Connect worker signals to UI slots
         self.worker.transcription_ready.connect(self.transcription_panel.add_transcription)
-        self.worker.question_extracted.connect(self.questions_panel.add_question)
         self.worker.accumulated_text_updated.connect(self.questions_panel.add_accumulated_text)
         self.worker.accumulated_text_cleared.connect(self.questions_panel.clear_accumulated_text)
         self.worker.timing_update.connect(self._update_timing_metrics)
@@ -267,37 +265,18 @@ class MainWindow(QMainWindow):
                 logger.info("Pause button clicked")
                 self.worker.pause()
     
-    def _on_extraction_mode_changed(self, enabled: bool):
-        """
-        Handle extraction mode toggle.
-        
-        Args:
-            enabled: True for extraction mode, False for accumulation mode
-        """
-        mode_name = "Question Extraction" if enabled else "Accumulation"
-        logger.info(f"Extraction mode changed: {mode_name}")
-        
-        # Update questions panel mode
-        self.questions_panel.set_mode(enabled)
-        
-        # Update worker mode if running
-        if self.worker is not None:
-            self.worker.set_extraction_mode(enabled)
-    
-    def _update_timing_metrics(self, audio_time: float, trans_time: float, extract_time: float):
+    def _update_timing_metrics(self, audio_time: float, trans_time: float):
         """
         Update timing metrics in status bar.
         
         Args:
             audio_time: Audio capture duration in seconds
             trans_time: Transcription time in seconds
-            extract_time: Question extraction time in seconds
         """
         # Format timing message
         message = (
             f"Audio: {audio_time:.2f}s | "
-            f"Transcription: {trans_time:.2f}s | "
-            f"Extraction: {extract_time:.2f}s"
+            f"Transcription: {trans_time:.2f}s"
         )
         
         # Update status bar
